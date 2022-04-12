@@ -25,6 +25,7 @@
 #define SIO_CMD_EC_READ_BLOCK	   0x03
 #define SIO_CMD_EC_ERASE_KBYTE	   0x05
 #define SIO_CMD_EC_WRITE_1ST_KBYTE 0x06
+#define SET_POWER_TIMER		   0x97
 #define EC_ROM_ACCESS_ON_1	   0xDE
 #define EC_ROM_ACCESS_ON_2	   0xDC
 #define EC_ROM_ACCESS_OFF	   0xFE
@@ -47,6 +48,7 @@ struct _FuEcIt55Device {
 	FuSuperioDevice parent_instance;
 	gchar *prj_name;
 	AutoloadAction autoload_action;
+	gboolean me_locked;
 };
 
 G_DEFINE_TYPE(FuEcIt55Device, fu_superio_it55_device, FU_TYPE_SUPERIO_DEVICE)
@@ -61,6 +63,7 @@ fu_superio_it55_device_to_string(FuDevice *device, guint idt, GString *str)
 
 	fu_common_string_append_kv(str, idt, "PrjName", self->prj_name);
 	fu_common_string_append_kx(str, idt, "AutoloadAction", self->autoload_action);
+	fu_common_string_append_kb(str, idt, "MeLocked", self->me_locked);
 }
 
 static gboolean
@@ -615,6 +618,9 @@ fu_superio_it55_device_set_quirk_kv(FuDevice *device,
 static void
 fu_superio_it55_device_init(FuEcIt55Device *self)
 {
+	/* assume ME is locked if unknown */
+	self->me_locked = TRUE;
+
 	fu_device_add_flag(FU_DEVICE(self), FWUPD_DEVICE_FLAG_UPDATABLE);
 	fu_device_add_flag(FU_DEVICE(self), FWUPD_DEVICE_FLAG_ONLY_OFFLINE);
 	fu_device_add_flag(FU_DEVICE(self), FWUPD_DEVICE_FLAG_REQUIRE_AC);
@@ -644,4 +650,67 @@ fu_superio_it55_device_class_init(FuEcIt55DeviceClass *klass)
 	klass_device->setup = fu_superio_it55_device_setup;
 	klass_device->prepare_firmware = fu_superio_it55_device_prepare_firmware;
 	klass_device->set_quirk_kv = fu_superio_it55_device_set_quirk_kv;
+}
+
+void
+fu_superio_it55_device_set_me_locked(FuEcIt55Device *self, gboolean me_locked)
+{
+	self->me_locked = me_locked;
+}
+
+gboolean
+fu_superio_it55_device_unlock(FuEcIt55Device *self, GError **error)
+{
+	guint8 data1;
+	guint8 data2;
+
+	FuSuperioDevice *sio_device = FU_SUPERIO_DEVICE(self);
+	g_autoptr(FuDeviceLocker) locker = NULL;
+
+	locker = fu_device_locker_new(self, error);
+	if (locker == NULL)
+		return FALSE;
+
+	if (!self->me_locked) {
+		g_set_error_literal(error,
+				    G_IO_ERROR,
+				    FWUPD_ERROR_NOTHING_TO_DO,
+				    "ME is already unlocked");
+		return FALSE;
+	}
+
+	/* set bit3 of WINF EC RAM (0xda) to assert FDOPPS strap */
+
+	do {
+		if (!fu_superio_device_reg_read(sio_device, 0xda, &data1, error))
+			return FALSE;
+		g_usleep(300 * 1000);
+		if (!fu_superio_device_reg_read(sio_device, 0xda, &data2, error))
+			return FALSE;
+	} while (data1 != data2);
+
+	if (!fu_superio_device_reg_write(sio_device, 0xda, data1 | 8, error))
+		return FALSE;
+
+	do {
+		g_usleep(300 * 1000);
+		if (!fu_superio_device_reg_read(sio_device, 0xda, &data2, error))
+			return FALSE;
+	} while (data2 != (data1 | 8));
+
+	/* program automatic power on after power off */
+	if (!fu_superio_device_ec_write_cmd(sio_device, SET_POWER_TIMER, error))
+		return FALSE;
+	if (!fu_superio_device_ec_write_data(sio_device, 0x00, error))
+		return FALSE;
+	/* 5 seconds in S5 state */
+	if (!fu_superio_device_ec_write_data(sio_device, 0x05, error))
+		return FALSE;
+
+	/* official tool does a shutdown */
+	fu_device_remove_flag(FU_DEVICE(self), FWUPD_DEVICE_FLAG_NEEDS_REBOOT);
+	fu_device_add_flag(FU_DEVICE(self), FWUPD_DEVICE_FLAG_NEEDS_SHUTDOWN);
+
+	/* success */
+	return TRUE;
 }

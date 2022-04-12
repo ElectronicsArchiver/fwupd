@@ -82,6 +82,8 @@ fu_plugin_superio_init(FuPlugin *plugin)
 	fu_plugin_add_device_gtype(plugin, FU_TYPE_SUPERIO_IT85_DEVICE);
 	fu_plugin_add_device_gtype(plugin, FU_TYPE_SUPERIO_IT89_DEVICE);
 	fu_plugin_add_rule(plugin, FU_PLUGIN_RULE_METADATA_SOURCE, "linux_lockdown");
+	/* for ME lock status */
+	fu_plugin_add_rule(plugin, FU_PLUGIN_RULE_RUN_AFTER, "intel_spi");
 	fu_context_add_quirk_key(ctx, "SuperioGType");
 	fu_context_add_quirk_key(ctx, "SuperioId");
 	fu_context_add_quirk_key(ctx, "SuperioPort");
@@ -89,6 +91,34 @@ fu_plugin_superio_init(FuPlugin *plugin)
 	fu_context_add_quirk_key(ctx, "SuperioDataPort");
 	fu_context_add_quirk_key(ctx, "SuperioTimeout");
 	fu_context_add_quirk_key(ctx, "SuperioAutoloadAction");
+}
+
+static void
+fu_plugin_superio_device_registered(FuPlugin *plugin, FuDevice *device)
+{
+	GPtrArray *our_devices;
+	const gchar *me_region_str = fu_ifd_region_to_string(FU_IFD_REGION_ME);
+
+	/* we're only interested in a device from intel-spi plugin that corresponds to ME
+	 * region of IFD */
+	if (g_strcmp0(fu_device_get_plugin(device), "intel_spi") != 0)
+		return;
+	if (g_strcmp0(fu_device_get_logical_id(device), me_region_str) != 0)
+		return;
+
+	our_devices = fu_plugin_get_devices(plugin);
+	for (guint i = 0; i < our_devices->len; i++) {
+		FuDevice *our_device = g_ptr_array_index(our_devices, i);
+		if (FU_IS_SUPERIO_IT55_DEVICE(our_device)) {
+			FuEcIt55Device *it55_device = FU_SUPERIO_IT55_DEVICE(our_device);
+			gboolean locked = fu_device_has_flag(device, FWUPD_DEVICE_FLAG_LOCKED);
+			fu_superio_it55_device_set_me_locked(it55_device, locked);
+
+			/* unlock operation requires device to be locked */
+			if (locked)
+				fu_device_add_flag(our_device, FWUPD_DEVICE_FLAG_LOCKED);
+		}
+	}
 }
 
 static gboolean
@@ -114,10 +144,27 @@ fu_plugin_superio_coldplug(FuPlugin *plugin, GError **error)
 	return TRUE;
 }
 
+static gboolean
+fu_plugin_superio_unlock(FuPlugin *self, FuDevice *device, GError **error)
+{
+	if (FU_IS_SUPERIO_IT55_DEVICE(device)) {
+		FuEcIt55Device *it55_device = FU_SUPERIO_IT55_DEVICE(device);
+		return fu_superio_it55_device_unlock(it55_device, error);
+	}
+
+	g_set_error_literal(error,
+			    FWUPD_ERROR,
+			    FWUPD_ERROR_NOT_SUPPORTED,
+			    "IT55 is the only kind of SuperIO devices that can be unlocked");
+	return FALSE;
+}
+
 void
 fu_plugin_init_vfuncs(FuPluginVfuncs *vfuncs)
 {
 	vfuncs->build_hash = FU_BUILD_HASH;
 	vfuncs->init = fu_plugin_superio_init;
+	vfuncs->device_registered = fu_plugin_superio_device_registered;
 	vfuncs->coldplug = fu_plugin_superio_coldplug;
+	vfuncs->unlock = fu_plugin_superio_unlock;
 }

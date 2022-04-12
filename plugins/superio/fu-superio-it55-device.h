@@ -14,3 +14,9 @@ G_DECLARE_FINAL_TYPE(FuEcIt55Device,
 		     FU,
 		     SUPERIO_IT55_DEVICE,
 		     FuSuperioDevice)
+
+void
+fu_superio_it55_device_set_me_locked(FuEcIt55Device *self, gboolean me_locked);
+
+gboolean
+fu_superio_it55_device_unlock(FuEcIt55Device *self, GError **error);
