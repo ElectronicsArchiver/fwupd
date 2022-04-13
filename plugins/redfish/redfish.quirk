@@ -7,7 +7,7 @@ ParentGuid = REDFISH\VENDOR_Lenovo&ID_BMC-Primary
 Flags = dual-image,is-backup,no-probe
 
 [REDFISH\VENDOR_Lenovo&ID_BMC-Primary]
-Flags = dual-image
+Flags = dual-image,manager-reset
 
 [REDFISH\VENDOR_Lenovo&ID_LXPM]
 Flags = ~updatable

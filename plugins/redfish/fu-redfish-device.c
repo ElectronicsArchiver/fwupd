@@ -812,6 +812,9 @@ fu_redfish_device_init(FuRedfishDevice *self)
 	fu_device_register_private_flag(FU_DEVICE(self),
 					FU_REDFISH_DEVICE_FLAG_WILDCARD_TARGETS,
 					"wildcard-targets");
+	fu_device_register_private_flag(FU_DEVICE(self),
+					FU_REDFISH_DEVICE_FLAG_MANAGER_RESET,
+					"manager-reset");
 }
 
 static void

@@ -32,6 +32,13 @@ struct _FuRedfishDeviceClass {
 #define FU_REDFISH_DEVICE_FLAG_UNSIGNED_BUILD (1 << 1)
 
 /**
+ * FU_REDFISH_DEVICE_FLAG_MANAGER_RESET:
+ *
+ * Reset the manager (typically the BMC) after updating this device.
+ */
+#define FU_REDFISH_DEVICE_FLAG_MANAGER_RESET (1 << 2)
+
+/**
  * FU_REDFISH_DEVICE_FLAG_WILDCARD_TARGETS:
  *
  * Do not specify the `odata.id` in the multipart update Targets array and allow
